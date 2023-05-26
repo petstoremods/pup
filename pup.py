@@ -9,7 +9,7 @@ from simple_term_menu import TerminalMenu
 from termcolor import colored
 import graceful_kill
 
-HOME = os.path.expanduser('~')
+HOME = '/home/puppy' #os.path.expanduser('~')
 GAMES_FILE_PATH = f'{HOME}/proj/.gamelist'
 DEVICES_FILE_PATH = f'{HOME}/proj/.devices'
 
@@ -52,17 +52,20 @@ def game_offset_list(game):
 def confirm():
     return 0 == menu(['Yes', 'No'])
 
-def scan_for_running_games():
-    for game in GAME_NAMES:
-        try:
-            match = subprocess.check_output(['pgrep', game])
-        except:
-            continue
-        
-        if match:
-            return game, int(match)
+def try_get_pid(process_name):
+    try:
+        return subprocess.check_output(['pgrep', process_name])
+    except:
+        return None
 
-    return None, None
+def scan_for_running_games():
+    matches = []
+    for game in GAME_NAMES:
+        match = try_get_pid(game)
+        if match:
+            matches.append((game, int(match)))
+
+    return matches
 
 def create_vibrate_on_update(intensity):
     def generated(new_value):
@@ -72,9 +75,18 @@ def create_vibrate_on_update(intensity):
 
     return generated
 
+def create_vibrate_until_update(intensity):
+    def generated(new_value):
+        if Plug.is_vibrating():
+            Plug.stop()
+        else:
+            Plug.vibe(intensity)
+
+    return generated
+
 def get_intensity():
     print('Intensity?')
-    return menu(list(map(lambda val: str(val), range(1, 21))))
+    return menu(list(map(lambda val: str(val), range(1, 21)))) + 1
         
 def fetch():
     device = None
@@ -83,18 +95,41 @@ def fetch():
 
     if 0 == option:
         game = read_name('Game Name: ')
+        if game in GAME_NAMES:
+            fatal(f'{game} is already registered')
+        
+        if not try_get_pid(game):
+            print(f'{game} could not be found. Continue?')
+            if not confirm():
+                sys.exit(0)
+            
         save_list(GAMES_FILE_PATH, GAMES + [game])
     elif 1 == option:
+        print('Scanning for devices...')
+        devices_and_names = Plug.scan()
+        device_names = list(map(lambda device_and_name: f'{device_and_name[1]}: {device_and_name[0]}', devices_and_names))
+        
+        print('Which device ID?')
+        device_index = menu(device_names)
+        device = devices[device_index][0]
+        peripheral = Plug.connect(device)
+        if not peripheral:
+            fatal('Failed to connect')
+        
+        print('Which UUID?')
+        characteristics = peripheral.getCharacteristics()
+        characteristic_index = menu(characteristics)
+        characteristic = characteristics[characteristic_index]
+
         name = read_name('Name: ')
-        device = read_name('Device Bluetooth ID: ')
-        uuid = read_name('UUID: ')
         save_list(DEVICES_FILE_PATH, DEVICES + [f'{name} {device} {uuid}'])
     elif 2 == option:
         print('Which game?')
         game_index = menu(GAME_NAMES)
         name = read_name('Address name: ')
         offset = int(input('Offset (hex): '), 16)
-        GAMES[game_index] += f'|{name} {offset}'
+        width = int(input('Width (bytes): '))
+        GAMES[game_index] += f'|{name} {offset} {width}'
         save_list(GAMES_FILE_PATH, GAMES)
     
     print('Saved for next time :3')
@@ -105,6 +140,7 @@ def create_vibrate_to_scale():
     max_value = int(input('Max value (stays at highest/lowest vibrations if over): '))
     
     def generated(new_value):
+        new_value = scanner.get_intensity(new_value)
         intensity = 0
         if not invert:
             intensity = int(Plug.MAX_VIBE * (new_value / max_value))
@@ -119,23 +155,30 @@ def create_vibrate_to_scale():
     return generated
 
 def get_device_and_connect():
+    print('Debug?')
+    if confirm():
+        return
+        
     print('Which device?')
     device_info = DEVICES[menu(DEVICE_NAMES)].split()
-    Plug.DEVICE = device_info[1]
-    Plug.UUID = device_info[2]
 
     print('Connecting to device...')
-    Plug.connect()
+    Plug.connect(device_info[1], device_info[2])
     print('Done!')
-
 
 def game_offset_names(game):
     return list(map(lambda offset_entry: offset_entry.split()[0], game_offset_list(game)))
 
 def play():
-    game_name, pid = scan_for_running_games()
-    if not game_name:
+    running_games = scan_for_running_games()
+    if [] == running_games:
         fatal('No game found')
+
+    game_name, pid = running_games[0]
+    if 1 != len(running_games):
+        print('Select game')
+        game_index = menu(map(lambda proc_info: proc_info[0], running_games))
+        game_name, pid = running_games[game_index]
 
     print(f'Play with {game_name}?')
     if not confirm():
@@ -145,22 +188,36 @@ def play():
 
     print('Which value?')
     hack = menu(game_offset_names(game))
-    offset = int(game_offset_list(game)[hack].split(' ')[1])
+    entry = game_offset_list(game)[hack].split(' ')
+    offset = int(entry[1])
+    width = int(entry[2])
 
     get_device_and_connect()
     
     print('How shall we play?')
-    mode = menu(['Change Detection', 'Continuous Scale'])
+    mode = menu(['Change Detection', 'Switch', 'Continuous Scale'])
 
     callback = None
     if 0 == mode:
         callback = create_vibrate_on_update(get_intensity())
+    elif 1 == mode:
+        callback = create_vibrate_until_update(get_intensity())
     else:
         callback = create_vibrate_to_scale()
         
-    scanner.daemon(pid, offset, callback)
+    scanner.daemon(pid, offset, width, callback)
 
+def root_check():
+    euid = os.geteuid()
+    if euid == 0:
+        return
+    
+    print("Script not started as root. Running sudo...")
+    args = ['sudo', sys.executable] + sys.argv + [os.environ]
+    os.execlpe('sudo', *args)
+    
 def main():
+    root_check()
     option = menu(['Play', 'Fetch'])
     if 0 == option:
         play()

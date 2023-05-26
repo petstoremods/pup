@@ -1,26 +1,64 @@
 from bluepy import btle 
 import time
 
+SCAN_TIME_SEC = 5.0
 MAX_VIBE = 20
-DEVICE = "CD:2D:06:2E:C8:66"
-UUID = "5a300002-0023-4bd4-bbd5-a6920e4c5653"
 TOY = None
+CONNECT_TIMEOUT = 5
+SKIP_UNAMED = True
+CURRENT_VIBE_LEVEL = 0
 
-def connect():
-    global TOY
+def scan():
+    results = set()
+    scanner = btle.Scanner()
+    devices = scanner.scan(SCAN_TIME_SEC)
+    for device in devices:
+        name = None
+        for (adtype, desc, value) in device.getScanData():
+            if desc == "Complete Local Name":
+                name = str(value)
+                break
+
+        if SKIP_UNAMED and name is None:
+            continue
+        elif name is None:
+            name = '[No name specified]'
+        
+        results.add((device.addr, name))
+
+    return results
+
+def connect(device_id, uuid):
+    wait_time = 0
     peripheral = None
     while True:
         try:
-            peripheral = btle.Peripheral(DEVICE, "random")
+            peripheral = btle.Peripheral(device_id, "random")
             break
         except:
+            if wait_time >= CONNECT_TIMEOUT:
+                return None
+            
+            wait_time += 1
             time.sleep(1)
-    
-    TOY = peripheral.getCharacteristics(uuid = btle.UUID(UUID))[0]
+
+    if uuid:
+        global TOY
+        TOY = uuid
+        
+    return peripheral
 
 def vibe(level):
-    TOY.write(f'Vibrate:{level}'.encode('ascii'))
+    global CURRENT_VIBE_LEVEL
+    CURRENT_VIBE_LEVEL = level
+    
+    if TOY:
+        TOY.write(f'Vibrate:{level}'.encode('ascii'))
+    else:
+        print(f'DEBUG: Not connected to send level {level}')
         
 def stop():
     vibe(0)
 
+def is_vibrating():
+    return 0 != CURRENT_VIBE_LEVEL
