@@ -9,6 +9,7 @@ from simple_term_menu import TerminalMenu
 from termcolor import colored
 import graceful_kill
 
+LOVENSE_ONLY = True
 HOME = '/home/puppy' #os.path.expanduser('~')
 GAMES_FILE_PATH = f'{HOME}/proj/.gamelist'
 DEVICES_FILE_PATH = f'{HOME}/proj/.devices'
@@ -63,7 +64,10 @@ def scan_for_running_games():
     for game in GAME_NAMES:
         match = try_get_pid(game)
         if match:
-            matches.append((game, int(match)))
+            try:
+                matches.append((game, int(match)))
+            except:
+                fatal('Multiple matches found. Reconfigure game to be more specific')
 
     return matches
 
@@ -87,7 +91,55 @@ def create_vibrate_until_update(intensity):
 def get_intensity():
     print('Intensity?')
     return menu(list(map(lambda val: str(val), range(1, 21)))) + 1
+
+def get_uuid_from_characteristic(characteristic):
+    c_str = str(characteristic)
+    return c_str[c_str.find('<')+1:c_str.find('>')]
+
+def fetch_device():
+    print('Scanning for devices...')
+    devices_and_names = Plug.scan()
+    if LOVENSE_ONLY:
+        devices_and_names = list(filter(lambda device_and_name: 'LVS' in device_and_name[1], devices_and_names))
+
+    device_names = list(map(lambda device_and_name: f'{device_and_name[1]}: {device_and_name[0]}', devices_and_names))
         
+    print('Which device ID?' if len(device_names) != 0 else 'No devices found')
+    device_index = menu(["Rescan", "Manual"] + device_names)
+    if 0 == device_index:
+        fetch_device()
+    elif 1 == device_index:
+        device = input('Device ID: ')
+    else:
+        device = devices_and_names[device_index - 2][0]
+        
+    peripheral = Plug.connect(device)
+    if not peripheral:
+        fatal('Failed to connect')
+
+    if LOVENSE_ONLY:
+        characteristics = peripheral.getCharacteristics()
+        entry_set = set()
+        for entry in characteristics:
+            entry_string = str(entry)
+            if '-' not in entry_string:
+                continue
+
+            # might be a fluke that both of my toys had duplicate entries, but finding this seems to be the key to the right uuid
+            if entry_string in entry_set:
+                uuid = entry
+                break
+
+            entry_set.add(entry_string)
+    else:
+        print('Which UUID?')
+        characteristics = peripheral.getCharacteristics()
+        characteristic_index = menu(list(map(str, characteristics)))
+        uuid = get_uuid_from_characteristic(characteristics[characteristic_index])
+    
+    name = read_name('Name: ')
+    save_list(DEVICES_FILE_PATH, DEVICES + [f'{name} {device} {uuid}'])
+
 def fetch():
     device = None
     print('Fetch what?')
@@ -105,24 +157,7 @@ def fetch():
             
         save_list(GAMES_FILE_PATH, GAMES + [game])
     elif 1 == option:
-        print('Scanning for devices...')
-        devices_and_names = Plug.scan()
-        device_names = list(map(lambda device_and_name: f'{device_and_name[1]}: {device_and_name[0]}', devices_and_names))
-        
-        print('Which device ID?')
-        device_index = menu(device_names)
-        device = devices[device_index][0]
-        peripheral = Plug.connect(device)
-        if not peripheral:
-            fatal('Failed to connect')
-        
-        print('Which UUID?')
-        characteristics = peripheral.getCharacteristics()
-        characteristic_index = menu(characteristics)
-        characteristic = characteristics[characteristic_index]
-
-        name = read_name('Name: ')
-        save_list(DEVICES_FILE_PATH, DEVICES + [f'{name} {device} {uuid}'])
+        fetch_device()
     elif 2 == option:
         print('Which game?')
         game_index = menu(GAME_NAMES)

@@ -1,7 +1,7 @@
 from bluepy import btle 
 import time
 
-SCAN_TIME_SEC = 5.0
+SCAN_TIME_SEC = 10.0
 MAX_VIBE = 20
 TOY = None
 CONNECT_TIMEOUT = 5
@@ -26,14 +26,14 @@ def scan():
         
         results.add((device.addr, name))
 
-    return results
+    return list(results)
 
-def connect(device_id, uuid):
+def connect(device_id, uuid = None):
     wait_time = 0
     peripheral = None
     while True:
         try:
-            peripheral = btle.Peripheral(device_id, "random")
+            peripheral = btle.Peripheral(device_id)
             break
         except:
             if wait_time >= CONNECT_TIMEOUT:
@@ -44,7 +44,7 @@ def connect(device_id, uuid):
 
     if uuid:
         global TOY
-        TOY = uuid
+        TOY = peripheral.getCharacteristics(uuid = btle.UUID(uuid))[0]
         
     return peripheral
 

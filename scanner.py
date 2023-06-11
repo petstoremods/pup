@@ -30,7 +30,7 @@ def compare_bytes_to_string(bytes_to_parse, value_to_match):
 def get_matching_memory_of_pid(pid, value, width, match_function, picklist = None):
     addresses = []
     if picklist:
-        with open("/proc/%d/mem" % pid, 'rb', 0) as mem_file:
+        with open(f'/proc/{pid}/mem', 'rb', 0) as mem_file:
             for offset in picklist:
                 mem_file.seek(offset)
                 chunk = mem_file.read(width)
@@ -39,8 +39,8 @@ def get_matching_memory_of_pid(pid, value, width, match_function, picklist = Non
 
         return addresses
     
-    with open("/proc/%d/maps" % pid, 'r') as maps_file:
-        with open("/proc/%d/mem" % pid, 'rb', 0) as mem_file:
+    with open(f'/proc/{pid}/maps', 'r') as maps_file:
+        with open(f'/proc/{pid}/mem', 'rb', 0) as mem_file:
             for line in maps_file.readlines():  # for each mapped region
                 if PAGE_MATCH and PAGE_MATCH not in line:
                     continue
@@ -74,13 +74,13 @@ def get_matching_memory_of_pid(pid, value, width, match_function, picklist = Non
     return set(addresses)
 
 def read_bytes_at_address(pid, address, width):
-    with open("/proc/%d/mem" % pid, 'rb', 0) as mem_file:
+    with open(f'/proc/{pid}/mem', 'rb', 0) as mem_file:
         mem_file.seek(address)
         return mem_file.read(width)
 
 def get_address_from_lookup_list(pid, base_address, lookup_list):
     pointer = base_address
-    mem_file = open("/proc/%d/mem" % pid, 'rb', 0)
+    mem_file = open(f'/proc/{pid}/mem', 'rb', 0)
     mem_file.seek(pointer)
     pointer = get_int_from_bytes(mem_file.read(POINTER_WIDTH))
     for offset in lookup_list:
@@ -96,7 +96,7 @@ def daemon(pid, offset, width, callback):
     previous_value = None
     
     while True:
-        with open("/proc/%d/mem" % pid, 'rb', 0) as mem_file:
+        with open(f'/proc/{pid}/mem', 'rb', 0) as mem_file:
             mem_file.seek(offset)
             value = mem_file.read(width)
             if previous_value is not None:
