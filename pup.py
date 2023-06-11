@@ -79,6 +79,49 @@ def create_vibrate_on_update(intensity):
 
     return generated
 
+create_vibrate_to_diff_old_value = None
+def create_vibrate_to_diff():
+    def generated(new_value):
+        global create_vibrate_to_diff_old_value
+
+        new_int = scanner.get_int_from_bytes(new_value)
+        if create_vibrate_to_diff_old_value:
+            delta = new_int - create_vibrate_to_diff_old_value
+            if delta < 0:
+                delta = 1
+            diff = min(delta, Plug.MAX_VIBE)
+            Plug.vibe(diff)
+        else:
+            Plug.vibe(1)
+
+        create_vibrate_to_diff_old_value = new_int
+        time.sleep(1)
+        Plug.stop()
+
+    return generated
+
+create_last_cont_value_old_value = None
+def create_last_cont_value():
+    def generated(new_value):
+        global create_last_cont_value_old_value
+
+        new_int = scanner.get_int_from_bytes(new_value)
+        if create_last_cont_value_old_value:
+            delta = new_int - create_last_cont_value_old_value
+            if delta < 0:
+                delta = 1
+            diff = min(delta, Plug.MAX_VIBE)
+            Plug.vibe(diff)
+        else:
+            Plug.vibe(1)
+
+        create_last_cont_value_old_value = new_int
+        time.sleep(1)
+
+    return generated
+
+
+
 def create_vibrate_until_update(intensity):
     def generated(new_value):
         if Plug.is_vibrating():
@@ -175,7 +218,6 @@ def create_vibrate_to_scale():
     max_value = int(input('Max value (stays at highest/lowest vibrations if over): '))
     
     def generated(new_value):
-        new_value = scanner.get_intensity(new_value)
         intensity = 0
         if not invert:
             intensity = int(Plug.MAX_VIBE * (new_value / max_value))
@@ -230,15 +272,19 @@ def play():
     get_device_and_connect()
     
     print('How shall we play?')
-    mode = menu(['Change Detection', 'Switch', 'Continuous Scale'])
+    mode = menu(['Change Detection', 'Switch', 'Continuous Scale', 'Value Scale', 'Continuous Diff'])
 
     callback = None
     if 0 == mode:
         callback = create_vibrate_on_update(get_intensity())
     elif 1 == mode:
         callback = create_vibrate_until_update(get_intensity())
-    else:
+    elif 2 == mode:
         callback = create_vibrate_to_scale()
+    elif 3 == mode:
+        callback = create_vibrate_to_diff()
+    else:
+        callback = create_last_cont_value()
         
     scanner.daemon(pid, offset, width, callback)
 
