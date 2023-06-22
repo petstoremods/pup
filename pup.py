@@ -155,11 +155,13 @@ def fetch_device():
         device = input('Device ID: ')
     else:
         device = devices_and_names[device_index - 2][0]
-        
+
+    print(f'connecting to {device}') 
     peripheral = Plug.connect(device)
     if not peripheral:
         fatal('Failed to connect')
 
+    uuid = None
     if LOVENSE_ONLY:
         characteristics = peripheral.getCharacteristics()
         entry_set = set()
@@ -174,6 +176,27 @@ def fetch_device():
                 break
 
             entry_set.add(entry_string)
+
+        if not uuid:
+            while True:
+                entry_index = menu(list(map(str, characteristics)))
+                uuid = get_uuid_from_characteristic(characteristics[entry_index])
+
+                try:
+                    print(f'Connecting to {device} {uuid}...')
+                    if not Plug.connect(device, uuid):
+                        Plug.connect(device, uuid)
+                    print('Vibrating...')
+                    Plug.vibe(1)
+                    time.sleep(1)
+                    Plug.vibe(0)
+
+                    print('Use this device?')
+                    if confirm():
+                        break
+                except:
+                    print('Failed to connect')
+                
     else:
         print('Which UUID?')
         characteristics = peripheral.getCharacteristics()

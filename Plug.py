@@ -1,10 +1,9 @@
 from bluepy import btle 
 import time
 
-SCAN_TIME_SEC = 10.0
+SCAN_TIME_SEC = 5.0
 MAX_VIBE = 20
 TOY = None
-CONNECT_TIMEOUT = 5
 SKIP_UNAMED = True
 CURRENT_VIBE_LEVEL = 0
 
@@ -29,22 +28,20 @@ def scan():
     return list(results)
 
 def connect(device_id, uuid = None):
-    wait_time = 0
     peripheral = None
-    while True:
+    try:
+        peripheral = btle.Peripheral(device_id, 'random')
+    except:
         try:
             peripheral = btle.Peripheral(device_id)
-            break
         except:
-            if wait_time >= CONNECT_TIMEOUT:
-                return None
+            return None
             
-            wait_time += 1
-            time.sleep(1)
-
     if uuid:
         global TOY
         TOY = peripheral.getCharacteristics(uuid = btle.UUID(uuid))[0]
+        if not TOY:
+            return None
         
     return peripheral
 
