@@ -10,9 +10,11 @@ from termcolor import colored
 import graceful_kill
 
 LOVENSE_ONLY = True
-HOME = '/home/puppy' #os.path.expanduser('~')
-GAMES_FILE_PATH = f'{HOME}/proj/.gamelist'
-DEVICES_FILE_PATH = f'{HOME}/proj/.devices'
+HOME = os.path.expanduser('~')
+
+# probably should use a real database at some point, but this program is just a hack
+GAMES_FILE_PATH = f'{HOME}/.pup_gamelist'
+DEVICES_FILE_PATH = f'{HOME}/.pup_devices'
 
 def fatal(message):
     print(colored(message, 'red'))
