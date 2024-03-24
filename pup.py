@@ -8,327 +8,225 @@ import subprocess, sys, os
 from simple_term_menu import TerminalMenu
 from termcolor import colored
 import graceful_kill
+import json
+import pup_modes
 
-LOVENSE_ONLY = True
-HOME = os.path.expanduser('~')
+import contextlib
+with contextlib.redirect_stdout(None):
+    import pygame.mixer
 
-# probably should use a real database at some point, but this program is just a hack
-GAMES_FILE_PATH = f'{HOME}/.pup_gamelist'
-DEVICES_FILE_PATH = f'{HOME}/.pup_devices'
+SCRIPT_ROOT = os.path.dirname(os.path.realpath(__file__))
+graceful_kill.on_kill(lambda: sys.exit(0))
+
+def try_get_pid(process_name):
+    try:
+        pids = subprocess.check_output(['pgrep', '-fl', process_name]).decode('ascii').split('\n')
+        for line in pids:
+            if process_name in line:
+                return line.split()[0]
+    except:
+        return None
 
 def fatal(message):
     print(colored(message, 'red'))
     sys.exit(1)
 
-def menu(options):
-    if 0 == len(options):
-        fatal('Oops, no options. Use fetch to configure one.')
+def clear():
+    os.system('clear')
     
-    option = TerminalMenu(options).show()
-    print(f'> {options[option]}')
-    return option
-    
-def save_list(path, things):
-    open(path, 'w').write('\n'.join(things))
-
-def load_list(path):
-    return [thing for thing in open(path).read().split('\n') if thing != '']
-
-def read_name(message):
-    name = input(message)
-    if ' ' in name:
-        fatal('Value cannot have whitespace')
-
-    return name
-
-GAMES = load_list(GAMES_FILE_PATH)
-GAME_NAMES = list(map(lambda game_line: game_line.split('|')[0], GAMES))
-DEVICES = load_list(DEVICES_FILE_PATH)
-DEVICE_NAMES = list(map(lambda dev_line: dev_line.split()[0], DEVICES))
-
-def game_from_name(game_name):
-    return GAMES[GAME_NAMES.index(game_name)]
-
-def game_offset_list(game):
-    return game.split('|')[1:]
-
-def confirm():
-    return 0 == menu(['Yes', 'No'])
-
-def try_get_pid(process_name):
-    try:
-        return subprocess.check_output(['pgrep', process_name])
-    except:
-        return None
-
-def scan_for_running_games():
-    matches = []
-    for game in GAME_NAMES:
-        match = try_get_pid(game)
-        if match:
-            try:
-                matches.append((game, int(match)))
-            except:
-                fatal('Multiple matches found. Reconfigure game to be more specific')
-
-    return matches
-
-def create_vibrate_on_update(intensity):
-    def generated(new_value):
-        Plug.vibe(intensity)
-        time.sleep(1)
-        Plug.stop()
-
-    return generated
-
-create_vibrate_to_diff_old_value = None
-def create_vibrate_to_diff():
-    def generated(new_value):
-        global create_vibrate_to_diff_old_value
-
-        new_int = scanner.get_int_from_bytes(new_value)
-        if create_vibrate_to_diff_old_value:
-            delta = new_int - create_vibrate_to_diff_old_value
-            if delta < 0:
-                delta = 1
-            diff = min(delta, Plug.MAX_VIBE)
-            Plug.vibe(diff)
-        else:
-            Plug.vibe(1)
-
-        create_vibrate_to_diff_old_value = new_int
-        time.sleep(1)
-        Plug.stop()
-
-    return generated
-
-create_last_cont_value_old_value = None
-def create_last_cont_value():
-    def generated(new_value):
-        global create_last_cont_value_old_value
-
-        new_int = scanner.get_int_from_bytes(new_value)
-        if create_last_cont_value_old_value:
-            delta = new_int - create_last_cont_value_old_value
-            if delta < 0:
-                delta = 1
-            diff = min(delta, Plug.MAX_VIBE)
-            Plug.vibe(diff)
-        else:
-            Plug.vibe(1)
-
-        create_last_cont_value_old_value = new_int
-        time.sleep(1)
-
-    return generated
-
-
-
-def create_vibrate_until_update(intensity):
-    def generated(new_value):
-        if Plug.is_vibrating():
-            Plug.stop()
-        else:
-            Plug.vibe(intensity)
-
-    return generated
-
-def get_intensity():
-    print('Intensity?')
-    return menu(list(map(lambda val: str(val), range(1, 21)))) + 1
-
-def get_uuid_from_characteristic(characteristic):
-    c_str = str(characteristic)
-    return c_str[c_str.find('<')+1:c_str.find('>')]
-
-def fetch_device():
-    print('Scanning for devices...')
-    devices_and_names = Plug.scan()
-    if LOVENSE_ONLY:
-        devices_and_names = list(filter(lambda device_and_name: 'LVS' in device_and_name[1], devices_and_names))
-
-    device_names = list(map(lambda device_and_name: f'{device_and_name[1]}: {device_and_name[0]}', devices_and_names))
-        
-    print('Which device ID?' if len(device_names) != 0 else 'No devices found')
-    device_index = menu(["Rescan", "Manual"] + device_names)
-    if 0 == device_index:
-        fetch_device()
-    elif 1 == device_index:
-        device = input('Device ID: ')
-    else:
-        device = devices_and_names[device_index - 2][0]
-
-    print(f'connecting to {device}') 
-    peripheral = Plug.connect(device)
-    if not peripheral:
-        fatal('Failed to connect')
-
-    uuid = None
-    if LOVENSE_ONLY:
-        characteristics = peripheral.getCharacteristics()
-        entry_set = set()
-        for entry in characteristics:
-            entry_string = str(entry)
-            if '-' not in entry_string:
-                continue
-
-            # might be a fluke that both of my toys had duplicate entries, but finding this seems to be the key to the right uuid
-            if entry_string in entry_set:
-                uuid = entry
-                break
-
-            entry_set.add(entry_string)
-
-        if not uuid:
-            while True:
-                entry_index = menu(list(map(str, characteristics)))
-                uuid = get_uuid_from_characteristic(characteristics[entry_index])
-
-                try:
-                    print(f'Connecting to {device} {uuid}...')
-                    if not Plug.connect(device, uuid):
-                        Plug.connect(device, uuid)
-                    print('Vibrating...')
-                    Plug.vibe(1)
-                    time.sleep(1)
-                    Plug.vibe(0)
-
-                    print('Use this device?')
-                    if confirm():
-                        break
-                except:
-                    print('Failed to connect')
-                
-    else:
-        print('Which UUID?')
-        characteristics = peripheral.getCharacteristics()
-        characteristic_index = menu(list(map(str, characteristics)))
-        uuid = get_uuid_from_characteristic(characteristics[characteristic_index])
-    
-    name = read_name('Name: ')
-    save_list(DEVICES_FILE_PATH, DEVICES + [f'{name} {device} {uuid}'])
-
-def fetch():
-    device = None
-    print('Fetch what?')
-    option = menu(["Game", "Device", "Offset"])
-
-    if 0 == option:
-        game = read_name('Game Name: ')
-        if game in GAME_NAMES:
-            fatal(f'{game} is already registered')
-        
-        if not try_get_pid(game):
-            print(f'{game} could not be found. Continue?')
-            if not confirm():
-                sys.exit(0)
-            
-        save_list(GAMES_FILE_PATH, GAMES + [game])
-    elif 1 == option:
-        fetch_device()
-    elif 2 == option:
-        print('Which game?')
-        game_index = menu(GAME_NAMES)
-        name = read_name('Address name: ')
-        offset = int(input('Offset (hex): '), 16)
-        width = int(input('Width (bytes): '))
-        GAMES[game_index] += f'|{name} {offset} {width}'
-        save_list(GAMES_FILE_PATH, GAMES)
-    
-    print('Saved for next time :3')
-
-def create_vibrate_to_scale():
-    print('Shall scale be inverted (0 -> highest vibrations)?')
-    invert = confirm()
-    max_value = int(input('Max value (stays at highest/lowest vibrations if over): '))
-    
-    def generated(new_value):
-        intensity = 0
-        if not invert:
-            intensity = int(Plug.MAX_VIBE * (new_value / max_value))
-        else:
-            if new_value > max_value:
-                new_value = max_value
-                
-            intensity = int(Plug.MAX_VIBE * ((Plug.MAX_VIBE * (MAX_VALUE - new_value)) / (Plug.MAX_VIBE * MAX_VALUE)))
-            
-        Plug.vibe(intensity)
-
-    return generated
-
-def get_device_and_connect():
-    print('Debug?')
-    if confirm():
-        return
-        
-    print('Which device?')
-    device_info = DEVICES[menu(DEVICE_NAMES)].split()
-
-    print('Connecting to device...')
-    Plug.connect(device_info[1], device_info[2])
-    print('Done!')
-
-def game_offset_names(game):
-    return list(map(lambda offset_entry: offset_entry.split()[0], game_offset_list(game)))
-
-def play():
-    running_games = scan_for_running_games()
-    if [] == running_games:
-        fatal('No game found')
-
-    game_name, pid = running_games[0]
-    if 1 != len(running_games):
-        print('Select game')
-        game_index = menu(map(lambda proc_info: proc_info[0], running_games))
-        game_name, pid = running_games[game_index]
-
-    print(f'Play with {game_name}?')
-    if not confirm():
-        return
-
-    game = game_from_name(game_name)
-
-    print('Which value?')
-    hack = menu(game_offset_names(game))
-    entry = game_offset_list(game)[hack].split(' ')
-    offset = int(entry[1])
-    width = int(entry[2])
-
-    get_device_and_connect()
-    
-    print('How shall we play?')
-    mode = menu(['Change Detection', 'Switch', 'Continuous Scale', 'Value Scale', 'Continuous Diff'])
-
-    callback = None
-    if 0 == mode:
-        callback = create_vibrate_on_update(get_intensity())
-    elif 1 == mode:
-        callback = create_vibrate_until_update(get_intensity())
-    elif 2 == mode:
-        callback = create_vibrate_to_scale()
-    elif 3 == mode:
-        callback = create_vibrate_to_diff()
-    else:
-        callback = create_last_cont_value()
-        
-    scanner.daemon(pid, offset, width, callback)
-
-def root_check():
+def root_check(extra_args):
     euid = os.geteuid()
     if euid == 0:
         return
     
     print("Script not started as root. Running sudo...")
-    args = ['sudo', sys.executable] + sys.argv + [os.environ]
+    args = ['sudo', sys.executable] + sys.argv + extra_args + [os.environ]
     os.execlpe('sudo', *args)
+
+def start_sound():
+    pygame.mixer.Sound(f'{SCRIPT_ROOT}/start.wav').play()
+
+def select_sound():
+    pygame.mixer.Sound(f'{SCRIPT_ROOT}/click.wav').play()
     
+def menu(options):
+    clear()
+    start_sound()
+    option = TerminalMenu(options).show()
+    if option is None:
+        fatal('No selection, exiting...')
+        
+    print(f'> {options[option]}')
+    select_sound()
+    while pygame.mixer.get_busy():
+        time.sleep(0.1)
+        
+    return option
+
+def connect_to_game(game_name):
+    game_pid = 0
+    while not game_pid:
+        game_pid = try_get_pid(game_name)
+        time.sleep(1)
+
+    return game_pid
+
+def wait_for(thing, callback):
+    print(f'Waiting for {thing}... ', end='', flush=True)
+    result = callback()
+    print('Done!')
+    return result
+
+class Feature:
+    def __init__(self, feature_format, feature_config):
+        self.min_value = feature_config['min']
+        self.max_value = feature_config['max']
+        self.feature_format = feature_format
+        self.feature_string = feature_config['string']
+
+    def eval_feature_insertion(self, insertion_string, arg):
+        string_to_eval = insertion_string.replace('$', str(arg))
+        insertion = eval(string_to_eval)
+
+        if self.feature_format == 'binary':
+            return '{:02x}'.format(insertion)
+
+        return str(insertion)
+
+    def get_min(self):
+        return self.min_value
+
+    def get_max(self):
+        return self.max_value
+    
+    def get_execute_string(self, arg):
+        inserting_value = False
+        insertion_string = ''
+        
+        result = ''
+        for c in self.feature_string:
+            if not inserting_value and c != '{':
+                result += c
+                continue
+
+            if (inserting_value and c == '{') or (not inserting_value and c == '}'):
+                fatal('Syntax error: Unbalanced insertion')
+
+            if c == '{':
+                inserting_value = True
+                continue
+
+            if c == '}':
+                result += self.eval_feature_insertion(insertion_string, arg)
+                insertion_string = ''
+                continue
+
+            insertion_string += c
+
+        return result
+
+    def run(self, execute_string):
+        if self.feature_format == 'binary':
+            execute_string = bytearray.fromhex(execute_string)
+                
+        Plug.write(execute_string)
+
+    def execute_string_from_input(self):
+        value = int(input('> '))
+        if value >= self.min_value and value <= self.max_value:
+            return self.get_execute_string(value)
+    
+def run(device_name, feature_name, game_name, mode_name):
+    if game_name:
+        root_check(['-c', device_name, feature_name, game_name, mode_name])
+    
+    config_path = f'{SCRIPT_ROOT}/config.json'
+    config = json.loads(open(config_path).read())
+
+    device_config = config['devices'][device_name]
+    feature_config = device_config['features'][feature_name]
+
+    clear()
+    if not wait_for('bluetooth device', lambda: Plug.connect(device_config['address'], device_config['uuid'])):
+        fatal('Failed to connect to bluetooth device')
+
+
+    feature = Feature(device_config['format'], feature_config)
+    if not game_name:
+        while True:
+            try:
+                exec_str = feature.execute_string_from_input()
+                print(f'Sending: {exec_str}')
+                feature.run(exec_str)
+            except ValueError:
+                continue
+
+        return
+
+    game_config = config['games'][game_name]
+    mode_config = game_config[mode_name]
+    game_pid = wait_for(game_name, lambda: connect_to_game(game_name))
+        
+    mode_callback = None
+    callback_name = mode_config['function']
+    for callback_index, callback in enumerate(pup_modes.modes):
+        if callback.__name__ == callback_name:
+            mode_callback = callback
+            break
+
+    generated_callback = mode_callback(feature, mode_config)
+    scanner.daemon(game_pid, mode_config['address'], mode_config['width'], generated_callback)
+
+def choose_options():
+    pygame.mixer.init()
+    
+    config_path = f'{SCRIPT_ROOT}/config.json'
+    config = json.loads(open(config_path).read())
+
+    device_names = list(config['devices'].keys())
+    device_index = menu(device_names)
+    device_name = device_names[device_index]
+    device_config = config['devices'][device_name]
+
+    feature_names = list(device_config['features'].keys())
+    feature_index = menu(feature_names)
+    feature_name = feature_names[feature_index]
+    
+    game_names = ['<Manual>'] + list(config['games'].keys())
+    game_index = menu(game_names)
+    if game_index == 0:
+        run(device_name, feature_name, None, None)
+        return
+        
+    game_name = game_names[game_index]
+    game_config = config['games'][game_name]
+
+    mode_names = list(game_config.keys())
+    mode_index = menu(mode_names)
+    mode_name = mode_names[mode_index]
+
+    run(device_name, feature_name, game_name, mode_name)
+
 def main():
-    root_check()
-    option = menu(['Play', 'Fetch'])
-    if 0 == option:
-        play()
-    else:
-        fetch()
+    parser = argparse.ArgumentParser(
+        prog="pup",
+        description="Connect programs with sex toys."
+    )
+    
+    parser.add_argument(
+        "-c",
+        "--config",
+        nargs=4,
+        help="device_name feature_name game_name mode_name"
+    )
+
+    args = parser.parse_args()
+    if args.config:
+        run(args.config[0], args.config[1], args.config[2], args.config[3])
+        return
+    
+    choose_options()
+
     
 if __name__ == '__main__':
     main()

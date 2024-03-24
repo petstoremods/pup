@@ -92,18 +92,13 @@ def get_address_from_lookup_list(pid, base_address, lookup_list):
 
     return pointer
 
-def daemon(pid, offset, width, callback):
-    previous_value = None
-    
+def daemon(pid, offset, width, callback):    
     while True:
         with open(f'/proc/{pid}/mem', 'rb', 0) as mem_file:
             mem_file.seek(offset)
             value = mem_file.read(width)
-            if previous_value is not None:
-                if value != previous_value:
-                    callback(value)
+            callback(value)
 
-            previous_value = value
             time.sleep(1)
                                 
 if __name__ == '__main__':

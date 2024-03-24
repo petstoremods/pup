@@ -1,5 +1,6 @@
-import signal, sys
+import signal
 
-signal.signal(signal.SIGINT, lambda num,_: sys.exit(num))
-signal.signal(signal.SIGTERM, lambda num,_: sys.exit(num))
+def on_kill(callback):
+    signal.signal(signal.SIGINT, lambda num,_: callback())
+    signal.signal(signal.SIGTERM, lambda num,_: callback())
 

@@ -1,0 +1,48 @@
+{
+    "name": "pup",
+    "devices":
+    {
+	"gush": {
+	    "address": "e1:e1:33:b3:4b:51",
+	    "uuid": "45440002-0023-4bd4-bbd5-a6920e4c5653",
+	    "format": "string",
+	    "features": {
+		"vibe": {
+		    "string": "Vibrate:{$}",
+		    "min": 0,
+		    "max": 20
+		},
+		
+		"stop": {
+		    "string": "vibe:0"
+		}
+	    }
+	},
+	
+	"fucking machine": {
+	    "address": "20:23:11:15:01:67",
+	    "uuid": "0000ffe9-0000-1000-8000-00805f9b34fb",
+	    "format": "binary",
+	    "features": {
+		"thrust": {
+		    "string": "CC03{$}{$+3}",
+		    "min": 0,
+		    "max": 100
+		},
+		
+		"stop": "CC020002"
+	    }
+	}
+    },
+    
+    "games": {
+	"DarkSouls": {
+	    "Souls": {
+		"address": "91296A4",
+		"width": 4,
+		"function": "vibrate_on_change",
+		"args": [1]
+	    }
+	}
+    }
+}

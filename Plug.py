@@ -7,6 +7,9 @@ TOY = None
 SKIP_UNAMED = True
 CURRENT_VIBE_LEVEL = 0
 
+def is_connected():
+    return TOY is not None
+
 def scan():
     results = set()
     scanner = btle.Scanner()
@@ -27,29 +30,41 @@ def scan():
 
     return list(results)
 
-def connect(device_id, uuid = None):
-    peripheral = None
-    try:
-        peripheral = btle.Peripheral(device_id, 'random')
-    except:
+def connect(device_id, uuid = None, peripheral = None):
+    if not peripheral:
         try:
-            peripheral = btle.Peripheral(device_id)
+            peripheral = btle.Peripheral(device_id, 'random')
         except:
-            return None
-            
+            try:
+                peripheral = btle.Peripheral(device_id)
+            except:
+                print('Failed to connect')
+                return None
+    
     if uuid:
         global TOY
-        TOY = peripheral.getCharacteristics(uuid = btle.UUID(uuid))[0]
-        if not TOY:
+        matches = peripheral.getCharacteristics(uuid = btle.UUID(uuid))
+        TOY = matches[0]
+        if not is_connected():
             return None
         
     return peripheral
+
+def write(value):
+    if is_connected():
+        if type(value) is str:
+            print(value)
+            TOY.write(value.encode('ascii'))
+        else:
+            TOY.write(value)
+    else:
+        print(f'DEBUG: Not connected')
 
 def vibe(level):
     global CURRENT_VIBE_LEVEL
     CURRENT_VIBE_LEVEL = level
     
-    if TOY:
+    if is_connected():
         TOY.write(f'Vibrate:{level}'.encode('ascii'))
     else:
         print(f'DEBUG: Not connected to send level {level}')
